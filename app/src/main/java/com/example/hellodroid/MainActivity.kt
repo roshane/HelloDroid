@@ -10,7 +10,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -21,6 +20,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -29,6 +29,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -64,8 +66,6 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.request
 import io.ktor.http.HttpMethod
 import io.ktor.http.headers
-import io.ktor.http.parameters
-import io.ktor.util.toMap
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -97,6 +97,14 @@ object AppConstants {
     const val FORM_PARAMS = "formParams"
     const val REQUEST_BODY = "requestBody"
     const val QUERY_PARAMS = "queryParams"
+
+    const val TAG_CELLULAR = "tag_cellular"
+    const val TAG_HTTP_METHOD_DROPDOWN = "tag_http_method_dropdown"
+    const val TAG_URL = "tag_url"
+    const val TAG_REQUEST_DATA_JSON = "tag_request_data_json"
+    const val TAG_SEND_BUTTON = "tag_send_button"
+    const val TAG_SEND_BUTTON_TEXT = "tag_send_button_text"
+    const val TAG_RESPONSE_DATA_JSON = "tag_response_data_json"
 }
 
 enum class Network(val value: Int) {
@@ -114,7 +122,7 @@ class MainActivity : ComponentActivity() {
         val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         setContent {
             var snackBarHostState by remember { mutableStateOf(SnackbarHostState()) }
-            HelloDroidTheme(darkTheme = true) {
+            HelloDroidTheme(darkTheme = false) {
                 Scaffold(
                     snackbarHost = {
                         SnackbarHost(snackBarHostState)
@@ -123,13 +131,15 @@ class MainActivity : ComponentActivity() {
                     topBar = {
                         TopAppBar(
                             title = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "YOLO App",
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
+                                Text(
+                                    "YOLO App",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
                             },
+                            colors = TopAppBarDefaults
+                                .topAppBarColors()
+                                .copy(containerColor = MaterialTheme.colorScheme.primary)
                         )
                     },
                     content = { padding ->
@@ -153,16 +163,17 @@ fun HomeScreen(
     connectivityManager: ConnectivityManager,
     snackBarHostState: SnackbarHostState
 ) {
-    val defaultUrl = "https://postman-echo.com/get"
+//    val defaultUrl = "https://postman-echo.com/get"
+    val defaultUrl = "https://ifconfig.me/"
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val supportedMethod = setOf<String>("GET", "POST")
 
     val requestJsonSample = mapOf(
-        REQUEST_HEADERS to mapOf("x-developer" to "developer@acme.com"),
+        REQUEST_HEADERS to mapOf("x-developer" to "goat@singtel.com"),
         FORM_PARAMS to emptyMap(),
         REQUEST_BODY to emptyMap(),
-        QUERY_PARAMS to mapOf("x-query-developer" to "developer@acme.com")
+        QUERY_PARAMS to mapOf("x-query-developer" to "goat@singtel.com")
     )
     var expanded by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
@@ -177,111 +188,126 @@ fun HomeScreen(
     Column(
         modifier = Modifier
             .padding(paddingValues)
-            .padding(5.dp)
+            .padding(10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Force Cellular:")
-            Spacer(Modifier.width(5.dp))
-            Switch(
-                checked = useCellular,
-                onCheckedChange = {
-                    useCellular = it
-                    enableSendButton = false
-                    val request = NetworkRequest.Builder().let { request ->
-                        if (it) {
-                            Log.d("HomeScreen: ", "Switching to CELLULAR")
-                            request.addTransportType(Network.CELLULAR.value)
-                                .addCapability(NetworkCapabilities.NET_CAPABILITY_MMS)
-                        } else {
-                            Log.d("HomeScreen: ", "Switching to WIFI")
-                            request.addTransportType(Network.WIFI.value)
-                        }
-                        request.build()
-                    }
-                    connectivityManager.requestNetwork(
-                        request,
-                        object : ConnectivityManager.NetworkCallback() {
-                            override fun onAvailable(network: android.net.Network) {
-                                connectivityManager.bindProcessToNetwork(network)
-                                val text = "Switched to ${if (it) "CELLULAR" else "WIFI"}"
-                                Log.d("HomeScreen: ", text)
-                                scope.launch {
-                                    snackBarHostState.currentSnackbarData?.dismiss()
-                                    snackBarHostState
-                                        .showSnackbar(
-                                            message = text,
-                                            duration = SnackbarDuration.Short
-                                        )
-                                }
-                                enableSendButton = true
-                            }
-                        }
-                    )
-                }
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("HTTP Method: $selectedHttpMethod")
-            IconButton(
-                onClick = { expanded = true },
-                modifier = Modifier.onGloballyPositioned {
-                    methodDropDownButtonPos = it.localToWindow(Offset.Zero)
-                }) {
-                Icon(Icons.Default.ArrowDropDown, contentDescription = "Show Method")
-            }
-            DropdownMenu(
-                expanded = expanded,
-                offset = DpOffset(
-                    x = with(density) { methodDropDownButtonPos.x.toDp() },
-                    y = 0.dp
-                ),
-                onDismissRequest = { expanded = false }) {
-                supportedMethod.forEachIndexed { i, it ->
-                    DropdownMenuItem(
-                        onClick = {
-                            selectedHttpMethod = it
-                            expanded = false
-                        },
-                        text = {
-                            Text(it)
-                        }
-                    )
-                    if (i < supportedMethod.size - 1) {
-                        HorizontalDivider()
-                    }
-                }
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Use Cellular")
 
             }
+            Column(modifier = Modifier.weight(3f)) {
+                Switch(
+                    modifier = Modifier.testTag(AppConstants.TAG_CELLULAR),
+                    checked = useCellular,
+                    onCheckedChange = {
+                        useCellular = it
+                        enableSendButton = false
+                        val request = NetworkRequest.Builder().let { request ->
+                            if (it) {
+                                Log.d("HomeScreen: ", "Switching to CELLULAR")
+                                request.addTransportType(Network.CELLULAR.value)
+                                    .addCapability(NetworkCapabilities.NET_CAPABILITY_MMS)
+                            } else {
+                                Log.d("HomeScreen: ", "Switching to WIFI")
+                                request.addTransportType(Network.WIFI.value)
+                            }
+                            request.build()
+                        }
+                        connectivityManager.requestNetwork(
+                            request,
+                            object : ConnectivityManager.NetworkCallback() {
+                                override fun onAvailable(network: android.net.Network) {
+                                    connectivityManager.bindProcessToNetwork(network)
+                                    val text = "Switched to ${if (it) "CELLULAR" else "WIFI"}"
+                                    Log.d("HomeScreen: ", text)
+                                    scope.launch {
+                                        snackBarHostState.currentSnackbarData?.dismiss()
+                                        snackBarHostState
+                                            .showSnackbar(
+                                                message = text,
+                                                duration = SnackbarDuration.Short
+                                            )
+                                    }
+                                    enableSendButton = true
+                                }
+                            }
+                        )
+                    }
+                )
+            }
         }
+        Spacer(Modifier.height(5.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("URL:")
-            Spacer(Modifier.width(10.dp))
-            OutlinedTextField(
-                value = location,
-                maxLines = 1,
-                onValueChange = { location = it }
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(selectedHttpMethod)
+                    IconButton(
+                        onClick = { expanded = true },
+                        modifier = Modifier
+                            .onGloballyPositioned {
+                                methodDropDownButtonPos = it.localToWindow(Offset.Zero)
+                            }
+                            .testTag(AppConstants.TAG_HTTP_METHOD_DROPDOWN)
+                    ) {
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Show Method")
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        offset = DpOffset(
+                            x = with(density) { methodDropDownButtonPos.x.toDp() },
+                            y = 0.dp
+                        ),
+                        onDismissRequest = { expanded = false }) {
+                        supportedMethod.forEachIndexed { i, it ->
+                            DropdownMenuItem(
+                                onClick = {
+                                    selectedHttpMethod = it
+                                    expanded = false
+                                },
+                                text = {
+                                    Text(it)
+                                }
+                            )
+                            if (i < supportedMethod.size - 1) {
+                                HorizontalDivider()
+                            }
+                        }
+
+                    }
+                }
+            }
+            Column(modifier = Modifier.weight(3f)) {
+                OutlinedTextField(
+                    value = location,
+                    singleLine = true,
+                    onValueChange = { location = it },
+                    modifier = Modifier.testTag(AppConstants.TAG_URL)
+                )
+            }
         }
-        Spacer(Modifier.height(10.dp))
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            Text("RequestData JSON")
-            Spacer(Modifier.width(5.dp))
-            OutlinedTextField(
-                value = httpRequestDataJson,
-                onValueChange = { value -> httpRequestDataJson = value },
-                minLines = 10,
-                maxLines = 20,
-                modifier = Modifier.fillMaxWidth()
-            )
+        Spacer(Modifier.height(5.dp))
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("RequestData JSON")
+            }
+            Column(modifier = Modifier.weight(3f)) {
+                OutlinedTextField(
+                    value = httpRequestDataJson,
+                    onValueChange = { value -> httpRequestDataJson = value },
+                    minLines = 10,
+                    maxLines = 20,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(AppConstants.TAG_REQUEST_DATA_JSON)
+                )
+            }
         }
-        Spacer(Modifier.height(10.dp))
-        if (enableSendButton) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxWidth()
-            ) {
+        Spacer(Modifier.height(5.dp))
+        Row {
+            Column(modifier = Modifier.weight(1f)) {
+
+            }
+            Column(modifier = Modifier.weight(3f)) {
                 Button(
                     onClick = {
                         httpResponse = ""
@@ -297,19 +323,25 @@ fun HomeScreen(
                             }
                         }
                     },
-                    enabled = !isLoading
+                    enabled = !isLoading,
+                    modifier = Modifier.testTag(AppConstants.TAG_SEND_BUTTON)
                 ) {
-                    Text(if (isLoading) "Loading..." else "Send")
+                    Text(
+                        if (isLoading) "Loading..." else "Send",
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.testTag(AppConstants.TAG_SEND_BUTTON_TEXT)
+                    )
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(5.dp))
         Column {
             if (httpResponse.isEmpty().not()) {
                 OutlinedTextField(
                     value = httpResponse,
                     onValueChange = {},
-                    readOnly = true
+                    readOnly = true,
+                    modifier = Modifier.testTag(AppConstants.TAG_RESPONSE_DATA_JSON)
                 )
             }
         }
@@ -322,13 +354,14 @@ private suspend fun exchange(
     selectedMethod: String
 ): String {
     val requestData = gson.fromJson(requestJson, object : TypeToken<Map<String, Any>>() {})
-    val requestBody = requestData[REQUEST_BODY]?.let {
+    val requestBodyAsString = requestData[REQUEST_BODY]?.let {
         when (it) {
             is String -> it
             is Number -> it.toString()
             else -> gson.toJson(it)
         }
     } ?: ""
+    Log.d("Request Body: ", requestBodyAsString)
     val formParams = requestData[FORM_PARAMS] ?: emptyMap<String, String>()
     val queryParams = requestData[QUERY_PARAMS]?.let {
         it as Map<*, *>
@@ -336,20 +369,19 @@ private suspend fun exchange(
     val requestHeaders = requestData[REQUEST_HEADERS]?.let {
         it as Map<*, *>
     } ?: emptyMap<String, String>()
+
     val request = httpClient.request(urlString = selectedUrl) {
         method = HttpMethod(selectedMethod)
-        setBody(requestBody)
-        headers {
-            requestHeaders.forEach {
-                Log.d(">>> Client", "Appending ${it.key.toString()}")
-                append(it.key.toString(), it.value.toString())
-            }
+        if (selectedMethod == "POST") {
+            setBody(requestBodyAsString)
+
+        }
+        requestHeaders.forEach {
+            headers.append(it.key.toString(), it.value.toString())
         }
         url {
-            parameters {
-                queryParams.forEach {
-                    append(it.key.toString(), it.value.toString())
-                }
+            queryParams.forEach {
+                parameters.append(it.key.toString(), it.value.toString())
             }
         }
     }
@@ -370,9 +402,9 @@ private suspend fun exchange(
                     "statusCode" to it.status.value,
                     "statusDescription" to it.status.description
                 ),
-                "body" to body,
+                "requestHeaders" to requestHeaders(it.request),
                 "responseHeaders" to responseHeader(it),
-                "requestHeaders" to requestHeaders(it.request)
+                "responseBody" to body
             )
         }
     return gson.toJson(response)
@@ -383,20 +415,20 @@ private fun isJsonResponse(response: HttpResponse) =
         it?.contains("application/json") == true
     }
 
-private fun requestHeaders(request: HttpRequest): Map<String, Any> {
+private fun requestHeaders(request: HttpRequest): Map<String, String> {
     return request
         .headers
+        .entries()
+        .filter { !it.value.isEmpty() }
+        .map { it.key to it.value.first() }
         .toMap()
 }
 
-private fun responseHeader(response: HttpResponse): Map<String, Any> {
+private fun responseHeader(response: HttpResponse): Map<String, String> {
     return response
         .headers
-        .names()
-        .map {
-            val headerName = it
-            val values = response.headers.getAll(headerName) ?: listOf()
-            headerName to values
-        }
+        .entries()
+        .filter { !it.value.isEmpty() }
+        .map { it.key to it.value.first() }
         .toMap()
 }
