@@ -1,6 +1,10 @@
 package com.example.hellodroid
 
+import android.util.Log
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -28,11 +32,23 @@ class ExampleInstrumentedTest {
     fun test_sanity() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         assertEquals("com.example.hellodroid", appContext.packageName)
-        val sendButton = rule.onNodeWithTag(AppConstants.TAG_SEND_BUTTON)
-        sendButton.performClick()
-        rule.waitUntilAtLeastOneExists(matcher = hasTestTag(AppConstants.TAG_RESPONSE_DATA_JSON))
-        Thread.sleep(5000)
-        val responseText = rule.onNodeWithTag(AppConstants.TAG_RESPONSE_DATA_JSON)
-        rule.onNodeWithTag(AppConstants.TAG_RESPONSE_DATA_JSON).assertExists()
+        with(rule) {
+            onNodeWithTag(AppConstants.TAG_SEND_BUTTON).performClick()
+            waitUntilAtLeastOneExists(matcher = hasTestTag(AppConstants.TAG_RESPONSE_DATA_JSON))
+            onNodeWithTag(AppConstants.TAG_RESPONSE_DATA_JSON).assertExists()
+            val responseDataJson = rule.onNodeWithTag(AppConstants.TAG_RESPONSE_DATA_JSON)
+                .captureText()
+            assertEquals("", responseDataJson)
+            Log.d("TEST", responseDataJson)
+        }
+    }
+
+
+    private fun SemanticsNodeInteraction.captureText(): String {
+        return fetchSemanticsNode()
+            .config
+            .getOrNull(SemanticsProperties.EditableText)
+            ?.text.orEmpty()
+
     }
 }
