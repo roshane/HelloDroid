@@ -15,6 +15,7 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.lang.Thread.sleep
 
 /**
  * Instrumented test, which will execute on an Android device.
@@ -33,12 +34,18 @@ class ExampleInstrumentedTest {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         assertEquals("com.example.hellodroid", appContext.packageName)
         with(rule) {
+            onNodeWithTag(AppConstants.TAG_CELLULAR).performClick()
+            waitForIdle()
             onNodeWithTag(AppConstants.TAG_SEND_BUTTON).performClick()
-            waitUntilAtLeastOneExists(matcher = hasTestTag(AppConstants.TAG_RESPONSE_DATA_JSON))
+            waitUntilAtLeastOneExists(
+                matcher = hasTestTag(AppConstants.TAG_RESPONSE_DATA_JSON),
+                10 * 1000
+            )
             onNodeWithTag(AppConstants.TAG_RESPONSE_DATA_JSON).assertExists()
             val responseDataJson = rule.onNodeWithTag(AppConstants.TAG_RESPONSE_DATA_JSON)
                 .captureText()
-            assertEquals("", responseDataJson)
+            assertTrue(responseDataJson.isNotEmpty())
+            sleep(2000)
             Log.d("TEST", responseDataJson)
         }
     }

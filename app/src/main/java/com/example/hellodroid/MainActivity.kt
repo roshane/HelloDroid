@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -56,12 +57,7 @@ import com.example.hellodroid.AppConstants.REQUEST_HEADERS
 import com.example.hellodroid.Commons.gson
 import com.example.hellodroid.Commons.httpClient
 import com.example.hellodroid.ui.theme.HelloDroidTheme
-import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.CurlUserAgent
-import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.request.HttpRequest
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
@@ -70,52 +66,6 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.request
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.launch
-import java.util.UUID
-
-object Commons {
-
-    private val TraceIdPlugin = createClientPlugin("TraceIdPlugin") {
-        onRequest { request, _ ->
-            request.headers.let {
-                val requestId = UUID.randomUUID().toString()
-                it.append("x-request-id", requestId)
-                it.append("x-correlator-id", requestId)
-            }
-        }
-    }
-
-    val gson = GsonBuilder()
-        .setPrettyPrinting()
-        .create()
-
-    val httpClient = HttpClient(CIO) {
-        CurlUserAgent()
-        install(TraceIdPlugin)
-    }
-
-}
-
-object AppConstants {
-    const val LOG_TAG = "@HelloDroid"
-
-    const val REQUEST_HEADERS = "requestHeader"
-    const val FORM_PARAMS = "formParams"
-    const val REQUEST_BODY = "requestBody"
-    const val QUERY_PARAMS = "queryParams"
-
-    const val TAG_CELLULAR = "tag_cellular"
-    const val TAG_HTTP_METHOD_DROPDOWN = "tag_http_method_dropdown"
-    const val TAG_URL = "tag_url"
-    const val TAG_REQUEST_DATA_JSON = "tag_request_data_json"
-    const val TAG_SEND_BUTTON = "tag_send_button"
-    const val TAG_SEND_BUTTON_TEXT = "tag_send_button_text"
-    const val TAG_RESPONSE_DATA_JSON = "tag_response_data_json"
-}
-
-enum class Network(val value: Int) {
-    WIFI(NetworkCapabilities.TRANSPORT_WIFI),
-    CELLULAR(NetworkCapabilities.TRANSPORT_CELLULAR)
-}
 
 class MainActivity : ComponentActivity() {
     override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
@@ -133,7 +83,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        val connectivityManager = getSystemService(ConnectivityManager::class.java)
         setContent {
             var snackBarHostState by remember { mutableStateOf(SnackbarHostState()) }
             HelloDroidTheme(darkTheme = false) {
@@ -178,7 +128,7 @@ fun HomeScreen(
     snackBarHostState: SnackbarHostState
 ) {
 //    val defaultUrl = "https://postman-echo.com/get"
-    val defaultUrl = "https://ifconfig.me/"
+    val defaultUrl = "https://seb-staging.singtel.com/application-backend/number-verification"
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val supportedMethod = setOf<String>("GET", "POST")
@@ -187,14 +137,20 @@ fun HomeScreen(
             ?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
     } == true
     val requestJsonSample = mapOf(
-        REQUEST_HEADERS to mapOf("x-developer" to "goat@singtel.com"),
+        REQUEST_HEADERS to mapOf(
+            "x-developer" to "john.doe@singtel.com",
+            "accept" to "application/json"
+        ),
         FORM_PARAMS to emptyMap(),
         REQUEST_BODY to emptyMap(),
-        QUERY_PARAMS to mapOf("x-query-developer" to "goat@singtel.com")
+        QUERY_PARAMS to mapOf(
+//            "phoneNumber" to "+6582461226"
+            "phoneNumber" to "+66614191840"
+        )
     )
     var expanded by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
-    var location by remember { mutableStateOf(defaultUrl) }
+    var location by remember { mutableStateOf(Uri.parse(defaultUrl).toString()) }
     var useCellular by remember { mutableStateOf(isUsingCellular) }
     var httpResponse by remember { mutableStateOf("") }
     var httpRequestDataJson by remember { mutableStateOf(gson.toJson(requestJsonSample)) }
@@ -234,7 +190,7 @@ fun HomeScreen(
                             if (it) {
                                 log("Switching to CELLULAR")
                                 request.addTransportType(Network.CELLULAR.value)
-                                    .addCapability(NetworkCapabilities.NET_CAPABILITY_MMS)
+                                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                             } else {
                                 log("Switching to WIFI")
                                 request.addTransportType(Network.WIFI.value)
@@ -314,7 +270,7 @@ fun HomeScreen(
                 OutlinedTextField(
                     value = location,
                     singleLine = true,
-                    onValueChange = { location = it },
+                    onValueChange = { location = buildUriWithoutQueryParams(it) },
                     modifier = Modifier.testTag(AppConstants.TAG_URL)
                 )
             }
@@ -327,7 +283,7 @@ fun HomeScreen(
             Column(modifier = Modifier.weight(3f)) {
                 OutlinedTextField(
                     value = httpRequestDataJson,
-                    onValueChange = { value -> httpRequestDataJson = value },
+                    onValueChange = { httpRequestDataJson = it },
                     minLines = 10,
                     maxLines = 20,
                     modifier = Modifier
@@ -387,7 +343,8 @@ private suspend fun exchange(
     requestJson: String,
     selectedMethod: String
 ): String {
-    val requestData = gson.fromJson(requestJson, object : TypeToken<Map<String, Any>>() {})
+    val json = if (requestJson.isNotEmpty()) requestJson else "{}"
+    val requestData = gson.fromJson(json, object : TypeToken<Map<String, Map<String, Any>>>() {})
     val requestBodyAsString = requestData[REQUEST_BODY]?.let {
         when (it) {
             is String -> it
@@ -416,6 +373,7 @@ private suspend fun exchange(
             }
             url {
                 queryParams.forEach {
+//                    parameters.append(it.key.toString(), Uri.encode(it.value.toString()))
                     parameters.append(it.key.toString(), it.value.toString())
                 }
             }
@@ -470,6 +428,42 @@ private fun responseHeader(response: HttpResponse): Map<String, String> {
         .map { it.key to it.value.first() }
         .toMap()
 }
+
+private fun buildUriWithoutQueryParams(location: String): String {
+    log("buildUri $location")
+    val parsed = Uri.parse(location)
+    val builder = parsed.buildUpon()
+    return builder.clearQuery().toString()
+//    parsed.queryParameterNames.forEach { queryName ->
+//        builder.appendQueryParameter(queryName, parsed.getQueryParameter(queryName))
+//    }
+//    return builder.build().toString()
+}
+
+//private fun getUpdatedRequestPayloadOnLocationChange(
+//    location: String,
+//    jsonPayload: String
+//): Map<String, Map<String, Any>> {
+//    Log.d(LOG_TAG, "getUpdatedRequestPayloadOnLocationChange $location")
+//    val json = if (jsonPayload.isEmpty()) "{}" else jsonPayload
+//    val requestData = gson.fromJson(json, object : TypeToken<Map<String, Map<String, Any>>>() {})
+//    return updateRequestPayloadJsonWithUri(requestData, location)
+//}
+
+//private fun updateRequestPayloadJsonWithUri(
+//    currentData: Map<String, Map<String, Any>>,
+//    location: String
+//): Map<String, Map<String, Any>> {
+//    val existingQueryParams = currentData[QUERY_PARAMS] ?: emptyMap()
+//    var uri = Uri.parse(location)
+//    val newQueryParams = uri.queryParameterNames.map {
+//        (it to uri.getQueryParameter(it)!!)
+//    }.toMap()
+//    Log.d(LOG_TAG, "existing payload $currentData")
+//    val updatedQueryParamsMap = existingQueryParams + newQueryParams
+//    Log.d(LOG_TAG, "updated payload ${currentData + mapOf(QUERY_PARAMS to updatedQueryParamsMap)}")
+//    return currentData + mapOf(QUERY_PARAMS to updatedQueryParamsMap)
+//}
 
 private fun log(message: String, error: Boolean = false) {
     if (error) {

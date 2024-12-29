@@ -54,6 +54,8 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.ktor.core)
     implementation(libs.ktor.cio)
+    implementation(libs.ktor.client.logging)
+    implementation(libs.slf4j.android)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
