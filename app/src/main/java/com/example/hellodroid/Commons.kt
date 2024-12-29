@@ -1,6 +1,8 @@
 package com.example.hellodroid
 
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import com.google.gson.GsonBuilder
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -9,12 +11,14 @@ import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
+import java.time.LocalDateTime
 import java.util.UUID
 
 object Commons {
     private const val KTOR = "KTOR"
+    private var customHttpClient: HttpClient? = null
 
-    private fun doLog(message:String) {
+    private fun doLog(message: String) {
         Log.d(KTOR, message)
         Log.d(KTOR, "#END#")
     }
@@ -23,8 +27,10 @@ object Commons {
         onRequest { request, _ ->
             request.headers.let {
                 val requestId = UUID.randomUUID().toString()
+                if (!it.contains("x-correlator")) {
+                    it.append("x-correlator", requestId)
+                }
                 it.append("x-request-id", requestId)
-                it.append("x-correlator", requestId)
             }
         }
     }
@@ -33,22 +39,53 @@ object Commons {
         .setPrettyPrinting()
         .create()
 
-    val httpClient = HttpClient(CIO) {
-        CurlUserAgent()
-        install(TraceIdPlugin)
-        install(Logging) {
-            logger = object : Logger {
-                override fun log(message: String) {
-                    doLog(message)
+//    val httpClient = HttpClient(CIO) {
+//        CurlUserAgent()
+//        install(TraceIdPlugin)
+//        install(Logging) {
+//            logger = object : Logger {
+//                override fun log(message: String) {
+//                    doLog(message)
+//                }
+//            }
+//            level = LogLevel.ALL
+//        }
+//        engine {
+//            https {
+//                trustManager = InsecureTrustManager()
+//            }
+//        }
+//    }
+
+    fun createHttpClient(logCollector: (Pair<String, String>) -> Unit): HttpClient {
+        if (customHttpClient == null) {
+            Log.d(KTOR, "creating new client")
+            customHttpClient = HttpClient(CIO) {
+                CurlUserAgent()
+                install(TraceIdPlugin)
+                install(Logging) {
+                    logger = object : Logger {
+                        @RequiresApi(Build.VERSION_CODES.O)
+                        override fun log(message: String) {
+                            logCollector(Pair(LocalDateTime.now().toString(), message))
+                            doLog(message)
+                        }
+                    }
+                    level = LogLevel.ALL
+                }
+                engine {
+                    https {
+                        trustManager = InsecureTrustManager()
+                    }
                 }
             }
-            level = LogLevel.ALL
         }
-        engine {
-            https {
-                trustManager = InsecureTrustManager()
-            }
-        }
+        return customHttpClient!!
+    }
+
+    fun closeHttpClient() {
+        Log.d(KTOR, "closing client")
+        customHttpClient?.close()
     }
 
 }

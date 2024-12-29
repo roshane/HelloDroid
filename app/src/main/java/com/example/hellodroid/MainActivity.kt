@@ -11,11 +11,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -29,6 +37,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -47,17 +56,20 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.hellodroid.AppConstants.FORM_PARAMS
 import com.example.hellodroid.AppConstants.LOG_TAG
 import com.example.hellodroid.AppConstants.QUERY_PARAMS
 import com.example.hellodroid.AppConstants.REQUEST_BODY
 import com.example.hellodroid.AppConstants.REQUEST_HEADERS
 import com.example.hellodroid.Commons.gson
-import com.example.hellodroid.Commons.httpClient
 import com.example.hellodroid.ui.theme.HelloDroidTheme
 import com.google.gson.reflect.TypeToken
+import io.ktor.client.HttpClient
 import io.ktor.client.request.HttpRequest
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
@@ -76,7 +88,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         log("cleaning up resource")
-        httpClient.close()
+        Commons.closeHttpClient()
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -86,6 +98,12 @@ class MainActivity : ComponentActivity() {
         val connectivityManager = getSystemService(ConnectivityManager::class.java)
         setContent {
             var snackBarHostState by remember { mutableStateOf(SnackbarHostState()) }
+            var httpLog by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
+            var showHttpLogDialog by remember { mutableStateOf(false) }
+            val logCollectorFun = { it: Pair<String, String> ->
+                httpLog =  httpLog + listOf(it)
+            }
+            val httpClient = Commons.createHttpClient(logCollectorFun)
             HelloDroidTheme(darkTheme = false) {
                 Scaffold(
                     snackbarHost = {
@@ -98,20 +116,42 @@ class MainActivity : ComponentActivity() {
                                 Text(
                                     "YOLO App",
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onPrimary
+                                    color = MaterialTheme.colorScheme.onPrimary,
                                 )
                             },
                             colors = TopAppBarDefaults
                                 .topAppBarColors()
-                                .copy(containerColor = MaterialTheme.colorScheme.primary)
+                                .copy(containerColor = MaterialTheme.colorScheme.primary),
+                            actions = {
+                                BadgedBox(badge = { Badge { Text(httpLog.size.toString()) } }) {
+                                    Icon(
+                                        Icons.Filled.Notifications,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.clickable(enabled = true) {
+                                            showHttpLogDialog = true
+                                        }
+                                    )
+                                }
+                            }
                         )
                     },
                     content = { padding ->
                         HomeScreen(
                             padding,
                             connectivityManager,
-                            snackBarHostState
+                            snackBarHostState,
+                            httpClient
                         )
+                        if (showHttpLogDialog) {
+                            HttpLogDialog(
+                                onDismissRequest = {
+                                    showHttpLogDialog = false
+                                    httpLog = emptyList()
+                                },
+                                logsCollected = httpLog
+                            )
+                        }
                     },
                     bottomBar = {},
                 )
@@ -125,7 +165,8 @@ class MainActivity : ComponentActivity() {
 fun HomeScreen(
     paddingValues: PaddingValues,
     connectivityManager: ConnectivityManager,
-    snackBarHostState: SnackbarHostState
+    snackBarHostState: SnackbarHostState,
+    httpClient: HttpClient
 ) {
 //    val defaultUrl = "https://postman-echo.com/get"
     val defaultUrl = "https://seb-staging.singtel.com/application-backend/number-verification"
@@ -144,8 +185,8 @@ fun HomeScreen(
         FORM_PARAMS to emptyMap(),
         REQUEST_BODY to emptyMap(),
         QUERY_PARAMS to mapOf(
-//            "phoneNumber" to "+6582461226"
-            "phoneNumber" to "+66614191840"
+            "phoneNumber" to "+6582461226"
+//            "phoneNumber" to "+66614191840"
         )
     )
     var expanded by remember { mutableStateOf(false) }
@@ -306,7 +347,8 @@ fun HomeScreen(
                             exchange(
                                 location,
                                 httpRequestDataJson,
-                                selectedHttpMethod
+                                selectedHttpMethod,
+                                httpClient
                             ).let {
                                 httpResponse = it
                                 isLoading = false
@@ -338,10 +380,58 @@ fun HomeScreen(
     }
 }
 
+@Composable
+fun HttpLogDialog(
+    onDismissRequest: () -> Unit,
+    logsCollected: List<Pair<String, String>> = emptyList()
+) {
+    Dialog(
+        onDismissRequest = { onDismissRequest() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer,
+            shape = RoundedCornerShape(5.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .fillMaxWidth()
+                    .fillMaxHeight()
+                    .padding(16.dp),
+            ) {
+                IconButton(onClick = { onDismissRequest() }) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "close",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+                logsCollected.forEach {
+                    Row {
+                        Text(
+                            it.first,
+                            modifier = Modifier.wrapContentSize(),
+                            textAlign = TextAlign.Start,
+                        )
+                        Text(
+                            it.second,
+                            modifier = Modifier.wrapContentSize(),
+                            textAlign = TextAlign.Start,
+                        )
+                    }
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+
 private suspend fun exchange(
     selectedUrl: String,
     requestJson: String,
-    selectedMethod: String
+    selectedMethod: String,
+    httpClient: HttpClient
 ): String {
     val json = if (requestJson.isNotEmpty()) requestJson else "{}"
     val requestData = gson.fromJson(json, object : TypeToken<Map<String, Map<String, Any>>>() {})
