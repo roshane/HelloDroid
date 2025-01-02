@@ -13,9 +13,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -31,6 +32,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -43,6 +45,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -101,7 +104,7 @@ class MainActivity : ComponentActivity() {
             var httpLog by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
             var showHttpLogDialog by remember { mutableStateOf(false) }
             val logCollectorFun = { it: Pair<String, String> ->
-                httpLog =  httpLog + listOf(it)
+                httpLog = httpLog + listOf(it)
             }
             val httpClient = Commons.createHttpClient(logCollectorFun)
             HelloDroidTheme(darkTheme = false) {
@@ -169,7 +172,7 @@ fun HomeScreen(
     httpClient: HttpClient
 ) {
 //    val defaultUrl = "https://postman-echo.com/get"
-    val defaultUrl = "https://seb-staging.singtel.com/application-backend/number-verification"
+    val defaultUrl = "https://seb.singtel.com/application-backend/number-verification"
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val supportedMethod = setOf<String>("GET", "POST")
@@ -390,23 +393,32 @@ fun HttpLogDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = RoundedCornerShape(5.dp)
+            color = MaterialTheme.colorScheme.secondaryContainer
         ) {
             Column(
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
+                    .padding(5.dp)
                     .fillMaxWidth()
                     .fillMaxHeight()
-                    .padding(16.dp),
             ) {
-                IconButton(onClick = { onDismissRequest() }) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "close",
-                        tint = MaterialTheme.colorScheme.error
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    IconButton(
+                        onClick = { onDismissRequest() },
+                        colors = IconButtonDefaults.iconButtonColors()
+                            .copy(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "close",
+                            tint = MaterialTheme.colorScheme.onError
+                        )
+                    }
                 }
+
                 logsCollected.forEach {
                     Row {
                         Text(
@@ -414,11 +426,14 @@ fun HttpLogDialog(
                             modifier = Modifier.wrapContentSize(),
                             textAlign = TextAlign.Start,
                         )
-                        Text(
-                            it.second,
-                            modifier = Modifier.wrapContentSize(),
-                            textAlign = TextAlign.Start,
-                        )
+                        VerticalDivider(thickness = 10.dp)
+                        SelectionContainer {
+                            Text(
+                                it.second,
+                                modifier = Modifier.wrapContentSize(),
+                                textAlign = TextAlign.Start,
+                            )
+                        }
                     }
                     HorizontalDivider()
                 }
