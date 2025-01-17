@@ -1,11 +1,15 @@
 package com.example.hellodroid
 
+import android.Manifest.permission.WRITE_EXTERNAL_STORAGE
 import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -64,6 +69,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import com.example.hellodroid.AppConstants.FORM_PARAMS
 import com.example.hellodroid.AppConstants.LOG_TAG
 import com.example.hellodroid.AppConstants.QUERY_PARAMS
@@ -80,7 +86,14 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.request
 import io.ktor.http.HttpMethod
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.io.IOException
+import java.io.File
+import java.io.FileOutputStream
+import java.time.LocalDateTime
 
 class MainActivity : ComponentActivity() {
     override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
@@ -107,6 +120,7 @@ class MainActivity : ComponentActivity() {
                 httpLog = httpLog + listOf(it)
             }
             val httpClient = Commons.createHttpClient(logCollectorFun)
+            val scope = rememberCoroutineScope()
             HelloDroidTheme(darkTheme = false) {
                 Scaffold(
                     snackbarHost = {
@@ -126,13 +140,56 @@ class MainActivity : ComponentActivity() {
                                 .topAppBarColors()
                                 .copy(containerColor = MaterialTheme.colorScheme.primary),
                             actions = {
+                                IconButton(onClick = {
+                                    if (httpLog.isEmpty()) {
+                                        scope.launch {
+                                            snackBarHostState.currentSnackbarData?.dismiss()
+                                            snackBarHostState.showSnackbar(
+                                                message = "No trace logs to download",
+                                                withDismissAction = true
+                                            )
+                                        }
+                                    } else {
+                                        if (ContextCompat.checkSelfPermission(
+                                                applicationContext,
+                                                WRITE_EXTERNAL_STORAGE
+                                            ) == PackageManager.PERMISSION_GRANTED || android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q
+                                        ) {
+                                            exportHttpTraceLog(applicationContext, scope, httpLog) {
+                                                scope.launch {
+                                                    snackBarHostState.currentSnackbarData?.dismiss()
+                                                    snackBarHostState.showSnackbar(
+                                                        it,
+                                                        withDismissAction = true
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }) {
+                                    Icon(
+                                        Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "download",
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                }
                                 BadgedBox(badge = { Badge { Text(httpLog.size.toString()) } }) {
                                     Icon(
-                                        Icons.Filled.Notifications,
-                                        contentDescription = null,
+                                        Icons.Default.Notifications,
+                                        contentDescription = "logs",
                                         tint = MaterialTheme.colorScheme.onPrimary,
                                         modifier = Modifier.clickable(enabled = true) {
-                                            showHttpLogDialog = true
+                                            if (httpLog.isNotEmpty()) {
+                                                showHttpLogDialog = true
+                                            } else {
+                                                scope.launch {
+                                                    snackBarHostState.currentSnackbarData?.dismiss()
+                                                    snackBarHostState.showSnackbar(
+                                                        message = "No trace logs to show",
+                                                        withDismissAction = true
+                                                    )
+                                                }
+                                            }
                                         }
                                     )
                                 }
@@ -210,7 +267,6 @@ fun HomeScreen(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("Use Cellular")
-
             }
             Column(modifier = Modifier.weight(3f)) {
                 Switch(
@@ -532,6 +588,48 @@ private fun responseHeader(response: HttpResponse): Map<String, String> {
         .filter { !it.value.isEmpty() }
         .map { it.key to it.value.first() }
         .toMap()
+}
+
+private fun exportHttpTraceLog(
+    context: Context,
+    coroutineScope: CoroutineScope,
+    httpLogs: List<Pair<String, String>>,
+    onResult: (String) -> Unit
+) {
+    coroutineScope.launch {
+        val result = withContext(Dispatchers.IO) {
+            try {
+                val fileName = "http_trace_log.txt"
+                val baseDir =
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                var rootDir = File(baseDir, "YOLO")
+                if (!(rootDir.exists())) {
+                    rootDir.mkdir()
+                }
+                val file = File(
+                    rootDir,
+                    fileName
+                )
+                val fileOutputStream = FileOutputStream(file)
+                httpLogs.forEach{ pair ->
+                    val line = "TIME STAMP:${pair.first}\n${pair.second}\n\n"
+                    fileOutputStream.write(line.toByteArray())
+                }
+                fileOutputStream.flush()
+                fileOutputStream.close()
+                "Saved to: ${file.absolutePath}"
+            } catch (e: IOException) {
+                val message = "error:IOException"
+                log(e.message ?: message)
+                message
+            } catch (e: SecurityException) {
+                val message = "error:SecurityException"
+                log(e.message ?: message)
+                message
+            }
+        }
+        onResult(result)
+    }
 }
 
 private fun buildUriWithoutQueryParams(location: String): String {
